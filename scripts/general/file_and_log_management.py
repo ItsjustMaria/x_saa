@@ -27,7 +27,7 @@ def check_file_exist(project_name, file, log, file_type='csv'):
         folder = 'log'
         ext = f'_{str(current_datetime)}.log'
     
-    filename = Path(HOME_REPO,'data',project_name, folder,f'{file}.{ext}')
+    filename = Path(HOME_REPO,'data',project_name, folder,f'{file}{ext}')
     
     os.makedirs(Path(filename.parent), exist_ok=True)
     
@@ -41,15 +41,15 @@ def check_file_exist(project_name, file, log, file_type='csv'):
     
     return filename
 
-def setup_logging(env, project_name):
+def setup_logging(env, name, project_name):
     
-    log = logging.getLogger("organizer")
-    log.setLevel(logging.DEBUG)   
+    log = logging.getLogger('organizer')
+    log.setLevel(logging.DEBUG)
 
-    logfile = check_file_exist(project_name,'migr_str_to_cnpt_log', log, 'log')
-    backup_file = check_file_exist(project_name,f"backup_{env}", log, 'csv')
-    error_file = check_file_exist(project_name,f"error_{env}", log, 'csv')
-    out_file = check_file_exist(project_name,f"out_{env}", log, 'csv')
+    logfile = check_file_exist(project_name, f'{name}_{env}_log', log, 'log')
+    backup_file = check_file_exist(project_name,f"backup_{name}_{env}", log, 'csv')
+    error_file = check_file_exist(project_name,f"error_{name}_{env}", log, 'csv')
+    out_file = check_file_exist(project_name,f"out_{name}_{env}", log, 'csv')
 
     fh = logging.FileHandler(logfile, encoding="utf-8")
     fh.setLevel(logging.DEBUG)
@@ -70,6 +70,7 @@ def create_csv(my_list, file):
     csv_df.to_csv(
         file,
         mode="w",
+        sep=';',
         index=False
     )
 

@@ -246,7 +246,7 @@ def main(log: str, source: str) -> None:
     fund = match.group(1)
     csv_path = Path(HOME_REPO, error_path, f"{fund}_errors.csv")
     with csv_path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=[
+        w = csv.DictWriter(f, delimiter=';', fieldnames=[
             "timestamp", "asset_id", "record_id", "message", "filename",
             "raw_message"])
         w.writeheader()

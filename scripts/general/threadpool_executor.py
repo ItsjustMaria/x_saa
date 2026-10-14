@@ -4,69 +4,61 @@ from tqdm import tqdm
 from pathlib import Path
 from functools import wraps
 import time
-import os 
 import sys
 #WORK_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\saa-nexus-scripts") # Adjust base path based on location
 #HOME_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\test") # Adjust base path based on location
 HOME_REPO = Path("/opt/lampp/htdocs/test")
 WORK_REPO = Path("/opt/lampp/htdocs/saa-nexus-scripts")
 sys.path.append(str(WORK_REPO))
-'''from modules import memorix
-from modules import saa
-from modules import wrapper
-'''
 from general import file_and_log_management
 
-'''# -----------------------------------------------------------
-# RETRY DECORATOR WITH EXPONENTIAL BACKOFF
 # -----------------------------------------------------------
-def retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0):
-    """Retry decorator for functions that may fail transiently"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            delay = base_delay
-            
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries:
-                        time.sleep(delay)
-                        delay = min(delay * 2, max_delay)  # Exponential backoff
-            
-            raise last_exception  # All attempts failed
-        return wrapper
-    return decorator'''
-
-
+# Threadpool executor wrapper function
+# -----------------------------------------------------------
 
 def execute_threadpool(
-        result,
-        **kwrgs
-        ):
-    
-    log, error_file, backup_file, out_file = file_and_log_management.setup_logging(kwrgs['env'], kwrgs['project_name'])
-    uuids_to_process = kwrgs['record_df'].head(kwrgs['test_amount'])
+                    record_df,
+                    max_workers,
+                    process_one_uuid,
+                    project_name,
+                    test_amount,
+                    retry_attempts,
+                    env,
+                    name,
+                    attempts = 0
+                    ):
+
+    name = f'{name}'
+    log, error_file, backup_file, out_file = file_and_log_management.setup_logging(env, name, project_name)
+    uuids_to_process = record_df.head(test_amount)
+    # Lists to accumulate the result
     logs = []
     errors = []
     backup = []
     out = []
-    print(type(kwrgs['record_df']))
+    attempts = []
+    retried = [] 
+    print(type(record_df))
     print(type(uuids_to_process))
-    with ThreadPoolExecutor(kwrgs['max_workers']) as executor:
+
+    log.info(f'ENVIRONMENT: {env}') 
+    input('\t\"COLLECT AND ALTER DATA NOW?\": (Y/N)')
+
+    with ThreadPoolExecutor(max_workers) as executor:
 
         futures = {}
         for idx, row in uuids_to_process.iterrows():
+
+            uuid = row['uuid']
+
             future = executor.submit(
-                kwrgs['process_one_uuid'],
-                row['uuid'],
-                result
-            )
+                process_one_uuid,
+                uuid,
+                retry_attempts
+           )
+            
             futures[future] = {
-                'uuid': row['uuid'],
+                'uuid': uuid,
                 'attempts': 1
             }
 
@@ -85,10 +77,10 @@ def execute_threadpool(
                         'attempts': meta['attempts']
                     })
                 else:
-                    kwrgs['attempts'].append(result)
+                    attempts.append(result)
 
             except TimeoutError:
-                result['errors'].append({
+                errors.append({
                     'uuid': meta['uuid'],
                     'error': 'TIMEOUT',
                     'attempts': meta['attempts']
@@ -96,16 +88,18 @@ def execute_threadpool(
 
             except Exception as e:
                 # Retry logic for transient failures
-                if meta['attempts'] < result['retry_attempts']:
+                if meta['attempts'] < retry_attempts:
                     meta['attempts'] += 1
                     
                     # Resubmit with backoff
                     time.sleep(min(2 ** meta['attempts'], 10))
-                    result['retried'].append(meta['uuid'])
+                    retried.append(meta['uuid'])
                     
                     new_future = executor.submit(
-                        kwrgs['process_one_uuid'],
+                        process_one_uuid,
                         meta['uuid'],
+                        retry_attempts,
+                        result
                     )
                     futures[new_future] = meta
                     
@@ -134,7 +128,7 @@ def execute_threadpool(
                 
             errors.extend(result['errors'])
             backup.extend(result['backup_rows'])
-            out.extend(result['out_rows'])
+            out.extend(result['out'])
 
     # write CSVs once, after everything is done
     file_and_log_management.create_csv(errors, error_file)
@@ -146,6 +140,10 @@ def execute_threadpool(
         out_df = pd.concat(out, ignore_index=True)
         out_df.to_csv(out_file, mode="w", index=False)
         file_and_log_management.create_csv(out_df, out_file)
+    if errors:
+        errors_df = pd.concat(errors, ignore_index=True)
+        errors_df.to_csv(error_file, mode="w", index=False)
+        file_and_log_management.create_csv(errors_df, error_file)
 
 
      #-------------------------------------------------------
@@ -193,39 +191,3 @@ def execute_threadpool(
         # Return for downstream use
         return attempts, result, retried, report
 
-
-    ## -----------------------------------------------------------
-    ## ENHANCED WORKER FUNCTION WITH ERROR CATCHING
-    ## -----------------------------------------------------------
-    #@retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0)
-    #def process_one_uuid(uuid, assetname, out_file, log):
-    #    """Worker with built-in exception handling and retry support"""
-    #    
-    #    try:
-    #        # 1)  Check for empty assetname early (common silent failure)
-    #        if not assetname or str(assetname).strip() == '':
-    #            return {'uuid': uuid, 'assetname': assetname, 'error': 'EMPTY_ASSETNAME', 'skipped': True}
-    #        
-    #        # 2) Fetch Turtle from second API
-    #        turtle_content = api.get_record(assetname)  # Your existing function
-    #        
-    #        # 3) Parse with rdflib (wrapped for errors)
-    #        try:
-    #            g = rdflib.Graph()
-    #            g.parse(data=turtle_content, format='turtle')
-    #        except Exception as parse_error:
-    #            return {'uuid': uuid, 'assetname': assetname, 'error': f'PARSER_ERROR: {parse_error}', 'parsed': False}
-    #        
-    #        # 4) Your processing logic here
-    #        processed_data = extract_rdf_data(g)  # Your existing logic
-    #        
-    #        return {
-    #            'uuid': uuid,
-    #            'assetname': assetname,
-    #            'status': 'success',
-    #            'data': processed_data
-    #        }
-    #        
-    #    except Exception as e:
-    #        # Re-raise for retry decorator to catch
-    #        raise RuntimeError(f"UUID {uuid}: {str(e)}")

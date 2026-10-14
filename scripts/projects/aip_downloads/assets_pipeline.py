@@ -494,8 +494,9 @@ def cmd_find_and_link(
     - filename
     - record_id
     """
-    #input_file = Path(HOME_REPO, 'data', 'aip_downloads', 'source', input_file)
-    #output_file =Path(HOME_REPO, 'data', 'aip_downloads', 'output', output_file)
+    sys.path.append(str(HOME_REPO))
+    input_file = Path(HOME_REPO, 'data', project, 'source', input_file)
+    output_file =Path(HOME_REPO, 'data', project, 'output', output_file)
 
     find_assetid_by_filename(
         input_file,

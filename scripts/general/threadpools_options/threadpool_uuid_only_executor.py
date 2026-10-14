@@ -109,18 +109,18 @@ def execute_threadpool(
             backup.extend(result['backup_rows'])
             out.extend(result['out_rows'])
 
-    from generic import create_csv
+    from general import file_and_log_management
     elapsed = time.time() - start_time
     # write CSVs once, after everything is done
-    create_csv(errors, error_file)
+    file_and_log_management.create_csv(errors, error_file)
     if backup:
         backup_df = pd.concat(backup, ignore_index=True)
         backup_df.to_csv(backup_file, mode="w", index=False)
-        create_csv(backup_df, backup_file)
+        file_and_log_management.create_csv(backup_df, backup_file)
     if out:
         out_df = pd.concat(out, ignore_index=True)
         out_df.to_csv(out_file, mode="w", index=False)
-        create_csv(out_df, out_file)
+        file_and_log_management.create_csv(out_df, out_file)
 
     # -------------------------------------------------------
     # OUTPUT SUMMARY & AUDIT TRAIL

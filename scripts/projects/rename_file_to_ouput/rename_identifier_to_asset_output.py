@@ -124,9 +124,9 @@ def generate_csv(df, out_file):
 
 def main():
 
-    #sys.path.append(HOME_REPO)
+    sys.path.append(f'{HOME_REPO}/scripts')
     from general import file_and_log_management
-    log, error_file, backup_file, out_file = file_and_log_management.setup_logging(env, project_name)
+    log, error_file, backup_file, out_file = file_and_log_management.setup_logging(env, project_name, project_name)
 
     log.info(f'ENVIRONMENT: {env}') 
     input('\t\"COLLECT AND ALTER DATA NOW?\": (Y/N)')

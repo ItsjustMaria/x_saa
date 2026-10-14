@@ -617,7 +617,6 @@ def main():
     except Exception as e:
         log.info(f'Reading the concept turtle failed {e}')
         log.error(f'fn: read_concept_turtle{[concept_turtle, concept_list, total_concept_uuids, e] }')
-        result['errors'].append({ 'errortext' : 'Error while reading concept turtle', 'error': e})
           
     try: 
         #Creating dataframes
@@ -648,7 +647,6 @@ def main():
     except Exception as e: 
         log.info(f'FAILED CREATING DATAFRAMES {df_record_uuids, data}')
         log.error(f'Error while creating dataframes {e}')    
-        result['errors'].append({'errortext' : 'Error while creating dataframes' , 'error' : e})
 
 
     try:
@@ -663,7 +661,6 @@ def main():
     except Exception as e: 
         log.info(f'FAILED LOOKING UP adamlink  {data, e}')
         log.error(f'Error while looking up adamlink {e}')    
-        result['errors'].append({'errortext' : 'Error while looking up adamlink' , 'error' : e})
 
     try:
         # Build alternative names list in concept_df
@@ -684,7 +681,6 @@ def main():
     except Exception as e: 
             log.info(f'FAILED BUILDING ALTERNATIVE NAMES LIST  {data, e}')
             log.error(f'Error while building list of alternative names {e}')    
-            result['errors'].append({'errortext' : 'Error while building list of alternative names' , 'error' : e})
     # Former tqdm for uuid in df loop, now a variable that returns the loop to the threadpool process
 
     # -----------------------------------
