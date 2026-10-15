@@ -2,43 +2,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
-from functools import wraps
 import time
-import os 
 import sys
 #WORK_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\saa-nexus-scripts") # Adjust base path based on location
 #HOME_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\test") # Adjust base path based on location
 HOME_REPO = Path("/opt/lampp/htdocs/test")
 WORK_REPO = Path("/opt/lampp/htdocs/saa-nexus-scripts")
 sys.path.append(str(WORK_REPO))
-from modules import memorix
-from modules import saa
-from modules import wrapper
-
-# -----------------------------------------------------------
-# RETRY DECORATOR WITH EXPONENTIAL BACKOFF
-# -----------------------------------------------------------
-def retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0):
-    """Retry decorator for functions that may fail transiently"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            delay = base_delay
-            
-            for attempt in range(1, max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries:
-                        time.sleep(delay)
-                        delay = min(delay * 2, max_delay)  # Exponential backoff
-            
-            raise last_exception  # All attempts failed
-        return wrapper
-    return decorator
-
 
 
 def execute_threadpool(
@@ -144,6 +114,7 @@ def execute_threadpool(
             backup.extend(result['backup_rows'])
             out.extend(result['out_rows'])
 
+    from generic import create_csv
     elapsed = time.time() - start_time
     # write CSVs once, after everything is done
     create_csv(errors, error_file)
@@ -184,7 +155,7 @@ def execute_threadpool(
         if errors:
             errors_df = pd.DataFrame(errors)
             errors_df.to_csv('threadpool_errors.csv', index=False)
-            print(f"\n⚠️  Errors exported to: threadpool_errors.csv")
+            print(f"\n Errors exported to: threadpool_errors.csv")
 
             # Show top 5 error types
             print("\nTop errors:")
@@ -205,10 +176,12 @@ def execute_threadpool(
     ## -----------------------------------------------------------
     ## ENHANCED WORKER FUNCTION WITH ERROR CATCHING
     ## -----------------------------------------------------------
+    #sys.path.append(HOME_REPO)
+    #import rename_collectionfile_to_image_output 
     #@retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0)
     #def process_one_uuid(uuid, assetname, out_file, log):
     #    """Worker with built-in exception handling and retry support"""
-    #    
+    #    rename_collectionfile_to_image_output.process_one_uuid(uuid, asset_name, out_file, log, retry_attempts)
     #    try:
     #        # 1️⃣ Check for empty assetname early (common silent failure)
     #        if not assetname or str(assetname).strip() == '':
@@ -219,7 +192,7 @@ def execute_threadpool(
     #        
     #        # 3️⃣ Parse with rdflib (wrapped for errors)
     #        try:
-    #            g = rdflib.Graph()
+    #            g = Graph()
     #            g.parse(data=turtle_content, format='turtle')
     #        except Exception as parse_error:
     #            return {'uuid': uuid, 'assetname': assetname, 'error': f'PARSER_ERROR: {parse_error}', 'parsed': False}

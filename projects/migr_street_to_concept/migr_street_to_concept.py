@@ -12,7 +12,6 @@ import logging
 from rapidfuzz import process, fuzz
 from pathlib import Path
 import time
-import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 #WORK_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\saa-nexus-scripts") # Adjust base path based on location
 #HOME_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\test\\cli_module") # Adjust base path based on location
@@ -21,52 +20,11 @@ WORK_REPO = Path("/opt/lampp/htdocs/saa-nexus-scripts")
 sys.path.append(str(WORK_REPO))
 from modules import memorix
 from modules import saa
+# from modules import saa_rdf as nrdf
 PREFIX = 'stadsarchief'
 
-
-# 182
-# 1452
-# 1452[\s+] -[\s+]  1453
-# 1452 (circa)
-# 1452 (circa) 1453 (circa)
-# 1452, 1453, 1452 - 1453
-# 1452 (ca)
-# 1452 (ca.)
-# 14e eeuws
-# ?
-# [1452]
-# [s.d.]
-# augustus 1452 - juli 1453
-# ca. 1452 (1 charter)
-# ca. 1452
-# ca. 14e [\s+] - [\s+] 15e eeuw
-# ca. 1452
-# ca. 14e eeuw
-# ca. 1452 [\s+ - [\s+] 1453
-# ca. 1452 ca. 1452
-# Circa 1452
-# Circa 1452 [\s+ - [\s+] circa 1452
-# datum onbekend
-# jan [\s+ - [\s+] 05-1452  
-# Niet gedateerd
-# onbekend
-# s.d.
-# september 1452
-# z.d.
-# z.j.
-# zonder datum 
-# zonder jaar
-
-
-
-
 '''
-   Script for filling dates based on migration date information to conformity being: 
-   - specific date when mentioned
-   - 1st of january to 31st of december when year is mentioned
-   - 1st of january to 31st of december to range of years when range of years is mentioned
-   - Decade of archive when date unknown / without year
-   - 2 centuries when 3 numbers are 
+   Script for updating migration street fields [CAN BE ADJUSTED] to a concept URI
 
    USAGE:
    python migr_street_to_concept.py --env --data
@@ -122,15 +80,83 @@ PREFIX = 'stadsarchief'
 # CLI AD DECLARATIONS
 # ---------------------------
 env = sys.argv[1]  # "acc" or "prod"
-project_name = 'determine_dating'                    #### !!!! State project dir name for data collection in file, logs and data folder     
-record_uuids = sys.argv[2] if len(sys.argv) > 2 else Path(HOME_REPO,'data',project_name, 'source', f'record_uuids_{env}.csv') 
+project_name = 'migr_street_to_concept'                    #### !!!! State project dir name for data collection in file, logs and data folder     
+data = sys.argv[2] if len(sys.argv) > 2 else Path(HOME_REPO,'data',project_name, 'source', f'alternatieve_straatnamen.csv') 
 
 current_datetime = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
 vocabulair = 'a4863c0c-d9e5-3902-831a-d0960e381a41'        #### !!!! uuid of vocabulair 
+
+concept_turtle = Path(HOME_REPO,'data', 'turtle', "concept.ttl")                #### !!!! Location of street turtle
+record_uuids = Path(HOME_REPO,'data',project_name, 'source', f'record_uuids_{env}.csv')                           #### !!!! Location of uuid from work_apialternatives = r"data/alternatives.csv",               #### !!!! Location of external csv
 pattern = r'^(?P<street>.*?)(?:\s+(?P<number>\d+)(?P<add>.*))?$'
-test_amount = 20000
+concept_list =  []
+total_concept_uuids = []
+test_amount = 1250
 threshold=92
 max_workers= 8
+
+# -----------------------------------
+# FILE MANAGEMENT
+# -----------------------------------
+def check_file_exist(file, log, file_type='csv'):
+
+    # Check file type, create file and folder and archive old files with date
+    sys.path.append(str(HOME_REPO))
+
+    if file_type == 'csv':
+        ext = '.csv'
+        folder = 'export'
+    elif file_type == 'log':
+        folder = 'log'
+        ext = f'_{str(current_datetime)}.log'
+    
+    filename = Path(HOME_REPO,'data',project_name, folder,f'{file}.{ext}')
+    
+    os.makedirs(Path(filename.parent), exist_ok=True)
+    
+    if os.path.exists(filename):
+        os.makedirs(Path(HOME_REPO,'data',project_name, folder, 'OLD/'), exist_ok=True)
+        old_file = Path(HOME_REPO,'data',project_name, folder, 'OLD/', f'{file}_{current_datetime}{ext}')
+        os.rename(filename, old_file)
+        log.info(f'Filename {filename} already existed. Archived file with current date timestamp and moved to dir: OLD')
+        
+    log.info(f'Created the file: {Path(filename)}\n')
+    
+    return filename
+
+def setup_logging():
+    
+    log = logging.getLogger("organizer")
+    log.setLevel(logging.DEBUG)   
+
+    logfile = check_file_exist('migr_str_to_cnpt_log', log, 'log')
+    backup_file = check_file_exist(f"backup_{env}", log, 'csv')
+    error_file = check_file_exist(f"error_{env}", log, 'csv')
+    out_file = check_file_exist(f"out_{env}", log, 'csv')
+    
+    fh = logging.FileHandler(logfile, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    log.addHandler(fh)
+    log.addHandler(ch)
+
+    return log, error_file, backup_file, out_file
+
+def create_csv(my_list, file):
+
+    # Outliers to dataframe 
+    csv_df = pd.DataFrame(my_list, index=range(len(my_list)))
+
+    csv_df.to_csv(
+        file,
+        mode="w",
+        index=False
+    )
+
+    return csv_df
 
 # -----------------------------------
 # ENVIRONMENT SETUP
@@ -167,7 +193,7 @@ SKOS = rdflib.Namespace("http://www.w3.org/2004/02/skos/core#")
 # FUNCTIONS
 # -----------------------------------
 
-'''def read_concept_turtle(s, g, s_str):
+def read_concept_turtle(s, g, s_str):
     
     match = re.search(r'/vocabularies/concepts/([^/>]+)', s_str)
     uuid = match.group(1) if match else ""
@@ -185,10 +211,10 @@ SKOS = rdflib.Namespace("http://www.w3.org/2004/02/skos/core#")
     
     total_concept_uuids.append(uuid)   
 
-    return concept_list, total_concept_uuids'''
+    return concept_list, total_concept_uuids
     
 
-def get_turtle_info(inst, g, uuid, predicates, pattern):
+def extract_street(inst, g, uuid, predicates, pattern):
     
     predicates.append({
           'uuid': uuid,
@@ -222,245 +248,39 @@ def get_turtle_info(inst, g, uuid, predicates, pattern):
     
     return predicates_df, predicates_df.streetTextualValue, predicates_df.street, predicates_df.house_number, predicates_df.number_add, predicates_df.adamlink
 
-def get_date(date):
+def normalize_add(number_add):
 
-######### vier jaren = onbekend
-# 1452, 1453, 1452 - 1453
-
-######### maand jaar maand jaar
-# augustus 1452 - juli 1453
-
-######### jaar maand jaar
-# 1452 - juli 1453
-
-    
-############## tussen twee jaren
-# 1452[\s+] -[\s+]  1453
-# 1452 (circa) 1453 (circa)
-# ca. 1452 [\s+ - [\s+] 1453
-# ca. 1452 ca. 1452
-# 1452 t/m 1453
-# Circa 1452 [\s+ - [\s+] circa 1452
-
-####### maand kortjaar maand jaar ########
-
-# januari 52 juli 1452
-
-
-######### maand jaar
-# september 1452
-
-############### decennium ############
-
-# Circa 1980
-# 1980 circa
-
-
-###### eeuwen 
-# ca. 14e [\s+] - [\s+] 15e eeuw
-# 14e eeuws
-# ca. 14e eeuw
-# 14e eeuws
-
-############# enkele jaartallen
-# ca. 1452
-# 1452 (circa)
-# 1452 (ca)
-# 1452 (ca.)
-# [1452]
-# Circa 1452
-# ca. 1452 (1 charter)
-# ca. 1452
-# 1452
-
-############### onbekend #############
-
-# ?
-# Niet gedateerd
-# [s.d.]
-# onbekend
-# s.d.
-# 182
-# z.d.
-# z.j.
-# zonder datum 
-# datum onbekend
-# zonder jaar
-# 1 omslag 
-
-# (?:) NON CAPTURING GROUP
-# (?P<NAME>) NAME A CAPTURED GROUP
-# (?=) POSITIVE LOOKAHEAD
-# (.*) ANY CHARACTER ZERO OR MORE REPS
-# {N,}? NON GREEDY QUANTIFIERS
-# (?i)te (?- i) CASE INSENSITIVE
-
-# Case insensitive - non capturing group - positive lookahead zero or more of any character
-# match a 'c' - match i - r - c zero or one time - match the dot zero or one time
-# capture a group named decennium - with three digits and a zero 
-# (?i)(?=.*ci?r?c?a\.?)(?-i)(?P<decennium>\d{3}0)
-
-
-    print(f'I get in the function')  
-    print(type(date))
-    #date = df_record_uuids['date'].notna()
-    #start_date = df_record_uuids['start']
-    #end_date = df_record_uuids['end']
-    date = re.sub(r'[\[\]]', '', date)
-    #print(df_record_uuids['uuid'])
-    
-    start_date = ''
-    end_date = ''
-    four_yrs_pattern = re.search(r'(?P<year_1>\d{4})(?P<year_2>\d{4})(?P<year_3>\d{4})(?P<year_4>\d{4})', date) # 4 years pattern
-    mnth_yr_mnth_yr_pattern = re.search(r'(?P<mnth_1>\w{3,})(?P<year_1>\d{4})(?P<mnth_2>\w{3,})(?P<year_2>\d{4})', date)
-    nrs_mnth_yr_pattern = re.search(r'(?P<mnth_1>\d{2,})(?P<year_1>\d{4})(?P<mnth_2>\d{2,})(?P<year_2>\d{4})', date)
-    yr_mnth_yr_pattern = re.search(r'(?P<year_1>\d{4})(?P<mnth_1>\w{3,})(?P<year_2>\d{4})', date)
-    between_yrs_pattern = re.search(r'(?P<year_1>\d{4}).*(?P<year_2>\d{4})', date)
-    mnth_sh_yr_mnth_yr_pattern = re.search(r'(?P<mnth_1>\w{3,})(?P<short_year>\d{2})(?P<mnth_2>\d{1,2})(?P<year_2>\d{4})(?P<century>\d{2})\d{2}', date)
-    mnth_yr_pattern = re.search(r'(?P<mnth_1>\w{3,})(?P<year_1>\d{4})', date)
-    centuries_pattern = re.search(r'(?P<cent_1>\d{2}e)(?P<cent_2>\d{2}e)', date)
-    century_pattern = re.search(r'(?P<cent_1>\d{2}e)',date)
-    yr_patttern = re.search(r'(?P<year_1>\d{4})', date)
-    circa_pattern = re.search(r'(?i)\bci?r?ca\.?\b', date)
-    else_pattern = re.search(r'\w?\d{0}.*', date)
-    #decennium_pattern = re.search(r'(?i)(?=.*ci?r?c?a\.?)(?-i)(?P<decennium>\d{3}0)', date)
-
-    if four_yrs_pattern: # year, year year - year
-        print(date)
-        start_date = ''
-        end_date = ''
-        print(f'I fail at the four_yrs_pattern {four_yrs_pattern} with date: {date}')
-        return start_date, end_date
-    if mnth_yr_mnth_yr_pattern: # month - year - month - year
-        start_date = f'01-{mnth_yr_mnth_yr_pattern.group('mnth_1')}-{mnth_yr_mnth_yr_pattern.group('year_1')}'
-        end_date = f'31-{mnth_yr_mnth_yr_pattern.group('mnth_2')}-{mnth_yr_mnth_yr_pattern.group('year_2')}'
-        return start_date, end_date
-    if nrs_mnth_yr_pattern:
-        start_date = f'01-{nrs_mnth_yr_pattern.group('mnth_1')}-{nrs_mnth_yr_pattern.group('year_1')}'
-        end_date = f'31-{nrs_mnth_yr_pattern.group('mnth_2')}-{nrs_mnth_yr_pattern.group('year_2')}'
-        return start_date, end_date
-    if yr_mnth_yr_pattern: # year - month - year
-        start_date = f'01-01-{yr_mnth_yr_pattern.group('year_01')}'
-        end_date = f'31-{yr_mnth_yr_pattern.group('month_1')}-{yr_mnth_yr_pattern.group('year_02')}'  
-        return start_date, end_date
-    if between_yrs_pattern: # year - year
-        start_date = f'01-01-{between_yrs_pattern.group('year_1')}'
-        end_date = f'31-12-{between_yrs_pattern.group('year_2')}'        
-        return start_date, end_date
-    if mnth_sh_yr_mnth_yr_pattern: # month - shorted year - month - year
-        start_date = f'01-{mnth_sh_yr_mnth_yr_pattern.group('mnth_1')}-{mnth_sh_yr_mnth_yr_pattern.group('century')}{mnth_sh_yr_mnth_yr_pattern.group('short_year')}'
-        end_date = f'31-12-{mnth_sh_yr_mnth_yr_pattern.group('year_2')}'  
-        return start_date, end_date
-    if mnth_yr_pattern:
-        start_date = f'01-{mnth_yr_pattern.group('mnth_1')}-{mnth_yr_pattern.group('year_1')}'
-        end_date = f'31-{mnth_yr_pattern.group('mnth_1')}-{mnth_yr_pattern.group('year_1')}'  
-        return start_date, end_date 
-    if centuries_pattern:
-        start_date = f'01-01-{centuries_pattern.group('cent_1')}00'
-        end_date = f'31-12-{centuries_pattern.group('cent_2')}99'
-        return start_date, end_date
-    if century_pattern:
-        start_date = f'01-01-{century_pattern.group('cent_1')}00'
-        end_date = f'31-12-{century_pattern.group('cent_1')}99'
-        return start_date, end_date
-    if circa_pattern: # ca / ca. / Circa / circa - year ending in 0
-        year_match = re.search( r'\b(?P<decennium>\d{3}0)\b', date)
-        if year_match: 
-            start_date = f'01-01-{year_match.group('decennium')}'
-            # end = (int(decennium_pattern.group('decennium') ) + 9)
-            end_date = f'31-12-{str(int(year_match.group('decennium')) + 9)}'
-            return start_date, end_date
-        else:
-            pass
-    if yr_patttern:
-        start_date = f'01-01-{yr_patttern.group('year_1')}'
-        end_date  = f'31-12-{yr_patttern.group('year_1')}'
-        return start_date, end_date
-    if else_pattern: 
-        start_date = ''
-        end_date = ''
-        return start_date, end_date
-    else: 
-        start_date = ''
-        end_date = ''
-        
-    '''if four_yrs_pattern: # year, year year - year
-        print(date)
-        start_date = ''
-        end_date = ''
-        print(f'I fail at the four_yrs_pattern {four_yrs_pattern} with date: {date}')
-        return start_date, end_date
-    if mnth_yr_mnth_yr_pattern: # month - year - month - year
-        print(f'I fail at the mnth_yr_mnth_yr_pattern {mnth_yr_mnth_yr_pattern}  with date: {date}')
-        start_date = f'01-{mnth_yr_mnth_yr_pattern.group('mnth_1')}-{mnth_yr_mnth_yr_pattern.group('year_1')}'
-        end_date = f'31-{mnth_yr_mnth_yr_pattern.group('mnth_2')}-{mnth_yr_mnth_yr_pattern.group('year_2')}'
-        return start_date, end_date
-    if nrs_mnth_yr_pattern:
-        print(f'I fail at the mnth_yr_mnth_yr_pattern {mnth_yr_mnth_yr_pattern}  with date: {date}')
-        start_date = f'01-{nrs_mnth_yr_pattern.group('mnth_1')}-{nrs_mnth_yr_pattern.group('year_1')}'
-        end_date = f'31-{nrs_mnth_yr_pattern.group('mnth_2')}-{nrs_mnth_yr_pattern.group('year_2')}'
-        return start_date, end_date
-    if yr_mnth_yr_pattern: # year - month - year
-        print(f'I fail at the yr_mnth_yr_pattern {yr_mnth_yr_pattern}  with date: {date}')
-        start_date = f'01-01-{yr_mnth_yr_pattern.group('year_01')}'
-        end_date = f'31-{yr_mnth_yr_pattern.group('month_1')}-{yr_mnth_yr_pattern.group('year_02')}'  
-        return start_date, end_date
-    if between_yrs_pattern: # year - year
-        print(f'I fail at the between_yrs_pattern {between_yrs_pattern} with date: {date}')
-        start_date = f'01-01-{between_yrs_pattern.group('year_1')}'
-        end_date = f'31-12-{between_yrs_pattern.group('year_2')}'        
-        print(f'I fail at the between_yrs_pattern {between_yrs_pattern} with date: {date}')
-        return start_date, end_date
-    if mnth_sh_yr_mnth_yr_pattern: # month - shorted year - month - year
-        print(f'I fail at the mnth_sh_yr_mnth_yr_pattern {mnth_sh_yr_mnth_yr_pattern} with date: {date}')
-        start_date = f'01-{mnth_sh_yr_mnth_yr_pattern.group('mnth_1')}-{mnth_sh_yr_mnth_yr_pattern.group('century')}{mnth_sh_yr_mnth_yr_pattern.group('short_year')}'
-        end_date = f'31-12-{mnth_sh_yr_mnth_yr_pattern.group('year_2')}'  
-        print(f'I fail at the mnth_sh_yr_mnth_yr_pattern {mnth_sh_yr_mnth_yr_pattern} with date: {date}')
-        return start_date, end_date
-    if mnth_yr_pattern:
-        print(f'I fail at the mnth_yr_pattern {mnth_yr_pattern}  with date: {date}')
-        start_date = f'01-{mnth_yr_pattern.group('mnth_1')}-{mnth_yr_pattern.group('year_1')}'
-        end_date = f'31-{mnth_yr_pattern.group('mnth_1')}-{mnth_yr_pattern.group('year_1')}'  
-        print(f'I fail at the mnth_yr_pattern {mnth_yr_pattern}  with date: {date}')
-        return start_date, end_date 
-    if centuries_pattern:
-        print(f'I fail at the centuries_pattern {centuries_pattern} with date: {date}')
-        start_date = f'01-01-{centuries_pattern.group('cent_1')}00'
-        end_date = f'31-12-{centuries_pattern.group('cent_2')}99'
-        print(f'I fail at the centuries_pattern {centuries_pattern} with date: {date}')
-        return start_date, end_date
-    if century_pattern:
-        print(f'I fail at the century_pattern {century_pattern}  with date: {date}')
-        start_date = f'01-01-{century_pattern.group('cent_1')}00'
-        end_date = f'31-12-{century_pattern.group('cent_1')}99'
-        print(f'I fail at the century_pattern {century_pattern}  with date: {date}')
-        return start_date, end_date
-    if circa_pattern: # ca / ca. / Circa / circa - year ending in 0
-        print(f'I fail at the year_match {circa_pattern} with date: {date}')
-        year_match = re.search( r'\b(?P<decennium>\d{3}0)\b', date)
-        if year_match: 
-            start_date = f'01-01-{year_match.group('decennium')}'
-            # end = (int(decennium_pattern.group('decennium') ) + 9)
-            end_date = f'31-12-{str(int(year_match.group('decennium')) + 9)}'
-            print(f'I fail at the year_match {year_match} with date: {date}')
-            return start_date, end_date
-        else:
-            pass
-    if yr_patttern:
-        print(f'I fail at the yr_patttern {yr_patttern} with date: {date}')
-        start_date = f'01-01-{yr_patttern.group('year_1')}'
-        end_date  = f'31-12-{yr_patttern.group('year_1')}'
-        print(f'I fail at the yr_patttern {yr_patttern} with date: {date}')
-        return start_date, end_date
-    if else_pattern: 
-        start_date = ''
-        end_date = ''
-        return start_date, end_date
-    else: 
-        start_date = ''
-        end_date = '''''
-    
-    return start_date, end_date
+    print(f'I get in the normalized with the addition: {number_add}')    
+    replacement = {
+        r'\b-i\b': "-1",
+        r'\b-ii\b' : "-2",
+        r'\b-iii\b': "-3",
+        r'\b-iv\b': "-4", 
+        r'\b-v\b': "-5", 
+        r'\b^i\b': "-1",
+        r'\b^ii\b' : "-2",
+        r'\b^iii\b': "-3",
+        r'\b^iv\b': "-4",
+        r'\bv\b': "-5",
+        r'\bi\b': "1",
+        r'\bii\b' : "2",
+        r'\biii\b': "3",
+        r'\biv\b': "4", 
+        r'\bv\b': "5",         
+    }
+    print(f'this is the number add type: {type(number_add)}')
+    # Remove punctuation
+    number_add = re.sub(r'[^\w\s]', '', number_add)
+    print(f'First adaptation addition: {number_add}')
+    # Normalize abbreviations for numbered streets 
+    for pattern, replacement in replacement.items():
+        number_add = re.sub(pattern, replacement, number_add) 
+    print(f'After the for loop addition: {number_add}')
+    # Extra whitespace removal
+    number_add = ' '.join(number_add.split())
+    print(f'Joining the addition addition: {number_add}')
+    print(f'This is what it normalized : {number_add}')
+    return number_add
 
 def normalize_street_name(street):
     
@@ -611,7 +431,7 @@ def process_one_uuid(uuid, concept_df, adamlink_lookup, concept_uuid_lookup, log
         'status': 'ok',
     }
 
-    dates = []
+    predicates = []
     turtle_changed = False
 
     log.info(f"STARTING WITH UUID: {uuid}")
@@ -632,9 +452,9 @@ def process_one_uuid(uuid, concept_df, adamlink_lookup, concept_uuid_lookup, log
         g = Graph()
         turtle = g.parse(data=response.text, format='turtle')       
 
-        for inst in g.objects(None, SAA.date): #### 
+        for inst in g.objects(None, SAA.isAssociatedWithModernAddress): 
 
-            predicates_df, _, _, _, _, _ = get_turtle_info(inst, g, uuid, dates, pattern)
+            predicates_df, _, _, _, _, _ = extract_street(inst, g, uuid, predicates, pattern)
 
             migr_street = predicates_df['extracted_street'].iloc[0]
             street_val = predicates_df['street'].iloc[0]                
@@ -776,78 +596,94 @@ def process_one_uuid(uuid, concept_df, adamlink_lookup, concept_uuid_lookup, log
 
 def main():
 
-    sys.path.append(str(f'{HOME_REPO}/scripts'))
-    from general import file_and_log_management
-    log, error_file, backup_file, out_file = file_and_log_management.setup_logging(env, project_name, project_name)
+    log, error_file, backup_file, out_file = setup_logging()
     g = Graph()
     log.info(f'ENVIRONMENT: {env}') 
     input('\t\"COLLECT AND ANALYZE DATA NOW?\": (Y/N)')
 
-    errors = []
-    backup = []
-    out = []
+    try: 
+        # Read concept turtle and put in list
+        print(Path(concept_turtle))
+        g.parse(concept_turtle, format='turtle') 
 
+        for s in g.subjects(rdflib.RDF.type, SKOS.Concept):
+            s_str = str(s)
+    
+            concept_list, total_concept_uuids = read_concept_turtle(s, g, s_str) 
+
+        log.info(f'A total of : {len(concept_list)} are stored in a list. There are : {len(total_concept_uuids)} concepts retrieved from the turtle. There have been : {len(concept_list) - len(total_concept_uuids)} losses during data extraction.')
+        log.info(f'Concept turtle put in list with a total of {len(total_concept_uuids)} concepts')   
+
+    except Exception as e:
+        log.info(f'Reading the concept turtle failed {e}')
+        log.error(f'fn: read_concept_turtle{[concept_turtle, concept_list, total_concept_uuids, e] }')
+          
     try: 
         #Creating dataframes
-        date = str('File.rico:isAssociatedWithDate.rico:expressedDate')
-        start = str('File.rico:isAssociatedWithDate.rico:hasBeginningDate')
-        end = str('File.rico:isAssociatedWithDate.rico:hasEndDate')
-        
-        df = pd.read_csv(record_uuids, 
+        df_record_uuids = pd.read_csv(record_uuids, 
         sep=";",             
-        dtype={ "uuid": str,
-               date : str,
-               start : str,
-               end : str
+        dtype={ "uuid": str
            })
 
-        uuid = df['uuid']
-        df = df.fillna(value='')
-        #df_record_uuids = pd.DataFrame({'uuid' : ['uuid'], 'date' : [date], 'start' : [start], 'end' : [end]})
-        # df_record_uuids['date'] = df_record_uuids[date]
-        # df_record_uuids['start'] = df_record_uuids[start]
-        # df_record_uuids['end'] = df_record_uuids[end]
-        #print(df_record_uuids['uuid'])
-        print('Dtypes ')
-        log.info(f'There are : {len(df)} rows in the datasheet.')
+
+        df_data = pd.read_csv(data, 
+            sep=",",             
+            dtype={ "adamlink": str,
+                   'streetTextualValue' : str,
+                   'altlabel' : str,
+                })
+
+        external_df = pd.DataFrame(df_data)
+        df_record_uuids = pd.DataFrame(df_record_uuids)
+        concept_df = pd.DataFrame(concept_list, index=range(len(concept_list)))
+        
+        concept_df['normalized_street'] = concept_df["streetTextualValue"].apply(
+            lambda street: normalize_street_name(street)
+        )
+   
+        log.info(f'There are : {len(external_df)} rows in the datasheet added through commandline. \nA total of : {len(df_record_uuids)} record_uuids were added to a dataframe.\nThe list of concepts was also added to a dataframe')
+        log.info(f'The streets in the concept dataframe are normalized')
 
     except Exception as e: 
-        log.info(f'FAILED CREATING DATAFRAME from the record_uuids')
+        log.info(f'FAILED CREATING DATAFRAMES {df_record_uuids, data}')
         log.error(f'Error while creating dataframes {e}')    
 
+    try:
+        # Find street and concept_uuid by cross referencing multiple columns to eachother
+        concept_df['alt_number'] = concept_df['adamlink'].str.extract(r'(\d+)')
+        external_df['alt_number'] = external_df['adamlink'].str.extract(r'(\d+)')
+        # Find street and concept_uuid by cross referencing multiple columns to eachother
+        adamlink_lookup = build_lookup(external_df, 'adamlink', ['streetTextualValue', 'altlabel'])
+        concept_uuid_lookup = build_lookup(concept_df, 'concept_uuid', ['streetTextualValue', 'normalized_street'])        
+        log.info(f'Cross referencing adamlink and concept_uuid completed')
+
+    except Exception as e: 
+        log.info(f'FAILED LOOKING UP adamlink  {data, e}')
+        log.error(f'Error while looking up adamlink {e}')    
 
     try:
-        # find date formats
-        #for idx, row in df_record_uuids.iterrows():
-        #    uuid = row['uuid']
-#
-        #    date = df_record_uuids['date']
+        # Build alternative names list in concept_df
+        alt_number_to_names = defaultdict(list)
+        for _, row in external_df.iterrows():
+            num = row['alt_number']
+            if pd.notna(num):
+                if pd.notna(row['altlabel']):
+                    alt_number_to_names[num].append(row['altlabel'])
+                if pd.notna(row['streetTextualValue']):
+                    alt_number_to_names[num].append(row['streetTextualValue'])
 
-        # df_record_uuids['start'], df_record_uuids['end'], count = get_date(date, count)
-        #mask = df_record_uuids[date].notna()
-        #df_record_uuids[date]=df_record_uuids[date].astype(str)
-        #df_record_uuids[date].loc[mask, date].replace(to_replace="None", value=str(''))
-        #df = df_record_uuids.replace(to_replace="None", value=str(''))
-        #df.replace(to_replace=["None", "N/A", np.nan, "-"], value=str(''))
-        #date = df_record_uuids[date].notna().iloc[0] or df_record_uuids[date].iloc[0]
-        print(df[date].isna().any())
-
-
-
-        df[start], df[end] = zip(*df[date].apply(
-            lambda x: get_date(x)))
-        print('I do ever get out in between')
-        row_dict = df.iloc[0].to_dict()
-        row_dict['uuid'] = uuid
-        df_out = pd.DataFrame(df.copy())
-        out.append(df_out)
-        print(out)
+        concept_df['alternative_names'] = concept_df['alt_number'].apply(
+            lambda n: alt_number_to_names.get(n, [])
+        )
+        log.info(f'Alternative names list build and added to concept_df')
         
-    except Exception as e:
-        log.info(f'FAILED getting dates with error : {e}')
-        log.error(f'Error while getting dates {type(e).__name__, e}') 
+    except Exception as e: 
+            log.info(f'FAILED BUILDING ALTERNATIVE NAMES LIST  {data, e}')
+            log.error(f'Error while building list of alternative names {e}')    
 
-    '''# -----------------------------------
+    # Former tqdm for uuid in df loop, now a variable that returns the loop to the threadpool process
+
+    # -----------------------------------
     # THREADPOOL FOR WORKLOAD DIVISION
     # -----------------------------------  
     uuids_to_process = df_record_uuids.head(test_amount)['uuid'].tolist()
@@ -886,17 +722,17 @@ def main():
             # this code only ever runs in the main thread, one future at a time
             errors.extend(result['errors'])
             backup.extend(result['backup_rows'])
-            out.extend(result['outlier_rows'])'''
+            out.extend(result['outlier_rows'])
 
     # write CSVs once, after everything is done
-    file_and_log_management.create_csv(errors, error_file)
+    create_csv(errors, error_file)
     if backup:
         backup_df = pd.concat(backup, ignore_index=True)
-        file_and_log_management.create_csv(backup_df, backup_file)
+        create_csv(backup_df, backup_file)
     if out:
         out_df = pd.concat(out, ignore_index=True)
         out_df.to_csv(out_file, mode="w", index=False)
-        file_and_log_management.create_csv(out_df, out_file)
+        create_csv(out_df, out_file)
     
       
 if __name__ == '__main__':

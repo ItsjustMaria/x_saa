@@ -22,7 +22,7 @@ def check_file_exist(project_name, file, log, file_type='csv'):
 
     if file_type == 'csv':
         ext = '.csv'
-        folder = 'export'
+        folder = 'output'
     elif file_type == 'log':
         folder = 'log'
         ext = f'_{str(current_datetime)}.log'
@@ -41,17 +41,18 @@ def check_file_exist(project_name, file, log, file_type='csv'):
     
     return filename
 
-def setup_logging(env, name, project_name):
+def setup_logging(env, project_name):
     
     log = logging.getLogger("organizer")
+    log.setLevel(logging.DEBUG)   
 
-    logfile = check_file_exist(project_name, f'{project_name}_{env}_log', log, 'log')
-    backup_file = check_file_exist(project_name,f"backup_{name}_{env}", log, 'csv')
-    error_file = check_file_exist(project_name,f"error_{name}_{env}", log, 'csv')
-    out_file = check_file_exist(project_name,f"out_{name}_{env}", log, 'csv')
+    logfile = check_file_exist(project_name,'migr_str_to_cnpt_log', log, 'log')
+    backup_file = check_file_exist(project_name,f"backup_{env}", log, 'csv')
+    error_file = check_file_exist(project_name,f"error_{env}", log, 'csv')
+    out_file = check_file_exist(project_name,f"out_{env}", log, 'csv')
 
     fh = logging.FileHandler(logfile, encoding="utf-8")
-    fh.setLevel(logging.ERROR)
+    fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO)
@@ -69,7 +70,6 @@ def create_csv(my_list, file):
     csv_df.to_csv(
         file,
         mode="w",
-        sep=';',
         index=False
     )
 

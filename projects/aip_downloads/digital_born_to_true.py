@@ -6,6 +6,7 @@ import rdflib
 from rdflib import Graph, URIRef, Literal, Namespace, RDF, BNode, XSD
 from pathlib import Path
 import time
+import logging
 #WORK_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\saa-nexus-scripts") # Adjust base path based on location
 #HOME_REPO = Path(r"C:\\Users\\swart053\\Documents\\VSC\\test\\cli_module") # Adjust base path based on location
 HOME_REPO = Path("/opt/lampp/htdocs/test/")
@@ -19,7 +20,7 @@ PREFIX = 'stadsarchief'
    Script for setting the 'digital born' indicator on a single record of type 'record' to 'true' 
    
    USAGE:
-   python migr_street_to_concept.py --env --name_of_csv_file
+   python digital_born_to_true.py --env --name_of_csv_file
 
    The following data is needed; 
    * On file list of uuids
@@ -166,6 +167,7 @@ def process_one_uuid(log):
                         log.info({  f'digital born set to \'True\' for UUID: {uuid}'}) 
                     else:
                         log.info({  f'Digital born was already set to True. Nothing changed for uuid: {uuid}'})
+                        print('I get here')
 
                 except Exception as e:
                         log.error({'errortext' : f'Was not able to change the digital born boolean for uuid:, {uuid}, with error: {e}'})
@@ -222,6 +224,10 @@ def main():
         out_df = pd.concat(out, ignore_index=True)
         out_df.to_csv(out_file, mode="w", index=False)
         file_and_log_management.create_csv(out_df, out_file)    
+    '''if errors:
+        error_df = pd.concat(errors, ignore_index=True)
+        error_df.to_csv(error_file, mode="w", index=False)
+        file_and_log_management.create_csv(error_df, error_file)  '''
 
 if __name__ == '__main__':
     main()
