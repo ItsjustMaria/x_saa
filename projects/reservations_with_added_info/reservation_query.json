@@ -1,0 +1,23 @@
+{
+    "query": {
+        "type": "AndQuery",
+        "queries": [
+            {
+                "type": "FieldQuery",
+                "operator": "equals",
+                "field": "recordType.id",
+                "value": "Fonds"
+            }
+        ]
+    },
+    "facets": [],
+    "fields": [],
+    "sort": [
+        {
+            "meta.identifier": "asc"
+        },
+        {
+            "title": "asc"
+        }
+    ]
+}
