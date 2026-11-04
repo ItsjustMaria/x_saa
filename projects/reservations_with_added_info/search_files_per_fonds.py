@@ -19,6 +19,7 @@ sys.path.append(str(WORK_REPO))
 from modules import memorix
 from modules import saa
 from modules import wrapper
+from modules import memorix_urllib3 
 '''
    Script for retrieving all records and recorddata 
 
@@ -211,20 +212,24 @@ def find_fund_uuid(fund,env):
     
     return fund_uuid
 
-def check_existence(file, g):
+def check_rights(uuid):
 
-    existing_labels = list(g.objects(file, RICO.hasDocumentaryFormType))
+    api, helper = get_helper(env)
+
+    result = api.get_ar_for_record(uuid)
+    
+    ''' existing_labels = list(g.objects(file, RICO.hasDocumentaryFormType))
     for existing_label in existing_labels:
         label = g.value(existing_label, SKOS.prefLabel)
         if label == Literal("audiovisueel document"):
             concept_exists = True
-            break 
+            break '''
         
-    return g, concept_exists
+    return result
 
 
 def get_details(uuid, env, log):
-
+    
     api, helper = get_helper(env)
     # Get Record turtle 
     try:    
@@ -242,8 +247,13 @@ def get_details(uuid, env, log):
         file = URIRef(f"{PREFIX}/resources/records/{uuid}")
         
         for file in g.subjects(RDF.type, MEMORIX.Record):
-            print(file)
-            rights = g.value(file, MEMORIX.restrictionsExpire)
+
+            rights = check_rights(uuid)
+            print(rights)
+
+
+            
+            #rights = g.value(file, MEMORIX.restrictionsExpire)
             print(rights)
         #for inst in g.result = helper.get_details_from_ar(response.text)
         #print(result)
