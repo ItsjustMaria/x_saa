@@ -1,2 +1,0 @@
-# Reserveringen worden opgehaald uit tab 'reserveringen'. Is dit een momorix iets of is dit ook Shacl data?
-
